@@ -9,6 +9,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [ '1.15', '1.16' ]
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -31,7 +34,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
-        go-version: 1.16
+        go-version: ${{ matrix.go }}
     - name: Set up kubebuilder
       uses: fluxcd/pkg/actions/kubebuilder@main
     - name: Run tests
