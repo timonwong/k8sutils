@@ -32,3 +32,14 @@ jobs:
       run: go test -v ./...
       env:
         KUBEBUILDER_ASSETS: ${{ github.workspace }}/kubebuilder/bin
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Release
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
