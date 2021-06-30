@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -87,9 +86,7 @@ var _ = Describe("Dynamicutil", func() {
 		})
 
 		It("creates a new object if one doesn't exists (actual object)", func() {
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deploy, CreateOrUpdateOptions{
-				MutateFunc: specrActual,
-			})
+			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deploy, specrActual)
 
 			By("returning no error")
 			Expect(err).NotTo(HaveOccurred())
@@ -114,9 +111,7 @@ var _ = Describe("Dynamicutil", func() {
 		})
 
 		It("creates a new object if one doesn't exists (unstructured)", func() {
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, CreateOrUpdateOptions{
-				MutateFunc: specrUns,
-			})
+			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, specrUns)
 
 			By("returning no error")
 			Expect(err).NotTo(HaveOccurred())
@@ -144,15 +139,11 @@ var _ = Describe("Dynamicutil", func() {
 
 		It("updates existing object (actual object)", func() {
 			var scale int32 = 2
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deploy, CreateOrUpdateOptions{
-				MutateFunc: specrActual,
-			})
+			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deploy, specrActual)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(op).To(BeEquivalentTo(OperationResultCreated))
 
-			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deploy, CreateOrUpdateOptions{
-				MutateFunc: deploymentScaler(deploy, scale),
-			})
+			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deploy, deploymentScaler(deploy, scale))
 			By("returning no error")
 			Expect(err).NotTo(HaveOccurred())
 
@@ -174,15 +165,11 @@ var _ = Describe("Dynamicutil", func() {
 
 		It("updates existing object (unstructured)", func() {
 			var scale int32 = 2
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, CreateOrUpdateOptions{
-				MutateFunc: specrUns,
-			})
+			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, specrUns)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(op).To(BeEquivalentTo(OperationResultCreated))
 
-			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deployUns, CreateOrUpdateOptions{
-				MutateFunc: deploymentScalerUnstructured(deployUns, scale),
-			})
+			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deployUns, deploymentScalerUnstructured(deployUns, scale))
 			By("returning no error")
 			Expect(err).NotTo(HaveOccurred())
 
@@ -205,39 +192,12 @@ var _ = Describe("Dynamicutil", func() {
 		})
 
 		It("updates only changed objects", func() {
-			deployClone := deploy.DeepCopy()
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deploy, CreateOrUpdateOptions{
-				MutateFunc: specrActual,
-			})
+			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, specrUns)
+
 			Expect(op).To(BeEquivalentTo(OperationResultCreated))
 			Expect(err).NotTo(HaveOccurred())
 
-			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deployClone, CreateOrUpdateOptions{
-				MutateFunc: deploymentSpecr(deployClone, deplSpec),
-			})
-			By("returning no error")
-			Expect(err).NotTo(HaveOccurred())
-
-			By("returning OperationResultNone")
-			Expect(op).To(BeEquivalentTo(OperationResultNone))
-		})
-
-		It("won't update for excluded fields", func() {
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deploy, CreateOrUpdateOptions{
-				MutateFunc: specrActual,
-			})
-			Expect(op).To(BeEquivalentTo(OperationResultCreated))
-			Expect(err).NotTo(HaveOccurred())
-
-			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deploy, CreateOrUpdateOptions{
-				MutateFunc: func() error {
-					deploy.Status.UnavailableReplicas = 32
-					return nil
-				},
-				PatchCalculateOptions: []patch.CalculateOption{
-					patch.IgnoreStatusFields(),
-				},
-			})
+			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deployUns, deploymentIdentity)
 			By("returning no error")
 			Expect(err).NotTo(HaveOccurred())
 
@@ -246,11 +206,9 @@ var _ = Describe("Dynamicutil", func() {
 		})
 
 		It("errors when MutateFn changes object name on creation", func() {
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, CreateOrUpdateOptions{
-				MutateFunc: func() error {
-					Expect(specrUns()).To(Succeed())
-					return deploymentRenamer(deployUns)()
-				},
+			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, func() error {
+				Expect(specrUns()).To(Succeed())
+				return deploymentRenamer(deployUns)()
 			})
 
 			By("returning error")
@@ -261,16 +219,12 @@ var _ = Describe("Dynamicutil", func() {
 		})
 
 		It("errors when MutateFn renames an object", func() {
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, CreateOrUpdateOptions{
-				MutateFunc: specrUns,
-			})
+			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, specrUns)
 
 			Expect(op).To(BeEquivalentTo(OperationResultCreated))
 			Expect(err).NotTo(HaveOccurred())
 
-			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deployUns, CreateOrUpdateOptions{
-				MutateFunc: deploymentRenamer(deployUns),
-			})
+			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deployUns, deploymentRenamer(deployUns))
 
 			By("returning error")
 			Expect(err).To(HaveOccurred())
@@ -280,16 +234,12 @@ var _ = Describe("Dynamicutil", func() {
 		})
 
 		It("errors when object namespace changes", func() {
-			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, CreateOrUpdateOptions{
-				MutateFunc: specrUns,
-			})
+			op, err := CreateOrUpdate(context.TODO(), deploymentCli, deployUns, specrUns)
 
 			Expect(op).To(BeEquivalentTo(OperationResultCreated))
 			Expect(err).NotTo(HaveOccurred())
 
-			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deployUns, CreateOrUpdateOptions{
-				MutateFunc: deploymentNamespaceChanger(deployUns),
-			})
+			op, err = CreateOrUpdate(context.TODO(), deploymentCli, deployUns, deploymentNamespaceChanger(deployUns))
 
 			By("returning error")
 			Expect(err).To(HaveOccurred())
@@ -299,21 +249,20 @@ var _ = Describe("Dynamicutil", func() {
 		})
 
 		It("aborts immediately if there was an error initially retrieving the object", func() {
-			op, err := CreateOrUpdate(context.TODO(),
-				namespaceableErrorReader{deploymentCli},
-				deployUns,
-				CreateOrUpdateOptions{
-					MutateFunc: func() error {
-						Fail("Mutation method should not run")
-						return nil
-					},
-				})
+			op, err := CreateOrUpdate(context.TODO(), namespaceableErrorReader{deploymentCli}, deployUns, func() error {
+				Fail("Mutation method should not run")
+				return nil
+			})
 
 			Expect(op).To(BeEquivalentTo(OperationResultNone))
 			Expect(err).To(HaveOccurred())
 		})
 	})
 })
+
+var deploymentIdentity MutateFn = func() error {
+	return nil
+}
 
 func deploymentRenamer(deploy *unstructured.Unstructured) MutateFn {
 	return func() error {
