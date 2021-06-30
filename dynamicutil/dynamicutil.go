@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/banzaicloud/k8s-objectmatcher/patch"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -55,11 +55,6 @@ func mutate(f MutateFn, key types.NamespacedName, obj metav1.Object) error {
 // MutateFn is a function which mutates the existing object into it's desired state.
 type MutateFn func() error
 
-type CreateOrUpdateOptions struct {
-	MutateFunc            MutateFn
-	PatchCalculateOptions []patch.CalculateOption
-}
-
 // CreateOrUpdate creates or updates the given object in the Kubernetes
 // cluster. The object's desired state must be reconciled with the existing
 // state inside the passed in callback MutateFn.
@@ -67,7 +62,7 @@ type CreateOrUpdateOptions struct {
 // The MutateFn is called regardless of creating or updating an object.
 //
 // It returns the executed operation and an error.
-func CreateOrUpdate(ctx context.Context, c dynamic.NamespaceableResourceInterface, obj Object, opts CreateOrUpdateOptions) (OperationResult, error) {
+func CreateOrUpdate(ctx context.Context, c dynamic.NamespaceableResourceInterface, obj Object, f MutateFn) (OperationResult, error) {
 	var (
 		err       error
 		objUns    *unstructured.Unstructured
@@ -77,19 +72,13 @@ func CreateOrUpdate(ctx context.Context, c dynamic.NamespaceableResourceInterfac
 	key := namespacedNameFromObject(obj)
 	cli := c.Namespace(key.Namespace)
 
-	if opts.MutateFunc == nil {
-		opts.MutateFunc = func() error {
-			return nil
-		}
-	}
-
 	resultUns, err = cli.Get(ctx, key.Name, metav1.GetOptions{})
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return OperationResultNone, err
 		}
 
-		if err = mutate(opts.MutateFunc, key, obj); err != nil {
+		if err = mutate(f, key, obj); err != nil {
 			return OperationResultNone, err
 		}
 
@@ -105,10 +94,6 @@ func CreateOrUpdate(ctx context.Context, c dynamic.NamespaceableResourceInterfac
 		return OperationResultCreated, nil
 	}
 
-	if err = mutate(opts.MutateFunc, key, obj); err != nil {
-		return OperationResultNone, err
-	}
-
 	existing, err := newObject(obj)
 	if err != nil {
 		return OperationResultNone, err
@@ -117,12 +102,10 @@ func CreateOrUpdate(ctx context.Context, c dynamic.NamespaceableResourceInterfac
 		return OperationResultNone, err
 	}
 
-	patchResult, err := patch.DefaultPatchMaker.Calculate(existing, obj, opts.PatchCalculateOptions...)
-	if err != nil {
+	if err = mutate(f, key, obj); err != nil {
 		return OperationResultNone, err
 	}
-
-	if patchResult.IsEmpty() {
+	if equality.Semantic.DeepEqual(existing, obj) {
 		return OperationResultNone, nil
 	}
 
