@@ -4,7 +4,6 @@ package dynamicutil
 import (
 	"context"
 	"fmt"
-	"reflect"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -63,16 +62,10 @@ type MutateFn func() error
 //
 // It returns the executed operation and an error.
 func CreateOrUpdate(ctx context.Context, c dynamic.NamespaceableResourceInterface, obj Object, f MutateFn) (OperationResult, error) {
-	var (
-		err       error
-		objUns    *unstructured.Unstructured
-		resultUns *unstructured.Unstructured
-	)
-
 	key := namespacedNameFromObject(obj)
 	cli := c.Namespace(key.Namespace)
 
-	resultUns, err = cli.Get(ctx, key.Name, metav1.GetOptions{})
+	fetchedUns, err := cli.Get(ctx, key.Name, metav1.GetOptions{})
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return OperationResultNone, err
@@ -82,26 +75,24 @@ func CreateOrUpdate(ctx context.Context, c dynamic.NamespaceableResourceInterfac
 			return OperationResultNone, err
 		}
 
-		if objUns, err = unstructuredFromObject(obj); err != nil {
+		objUns, err := unstructuredFromObject(obj)
+		if err != nil {
 			return OperationResultNone, err
 		}
-		if resultUns, err = cli.Create(ctx, objUns, metav1.CreateOptions{}); err != nil {
+		if fetchedUns, err = cli.Create(ctx, objUns, metav1.CreateOptions{}); err != nil {
 			return OperationResultNone, err
 		}
-		if err = objectFromUnstructured(resultUns, obj); err != nil {
+		if err = objectFromUnstructured(fetchedUns, obj); err != nil {
 			return OperationResultNone, err
 		}
 		return OperationResultCreated, nil
 	}
 
-	existing, err := newObject(obj)
-	if err != nil {
-		return OperationResultNone, err
-	}
-	if err = objectFromUnstructured(resultUns, existing); err != nil {
+	if err = objectFromUnstructured(fetchedUns, obj); err != nil {
 		return OperationResultNone, err
 	}
 
+	existing := obj.DeepCopyObject()
 	if err = mutate(f, key, obj); err != nil {
 		return OperationResultNone, err
 	}
@@ -109,26 +100,17 @@ func CreateOrUpdate(ctx context.Context, c dynamic.NamespaceableResourceInterfac
 		return OperationResultNone, nil
 	}
 
-	if objUns, err = unstructuredFromObject(obj); err != nil {
+	objUns, err := unstructuredFromObject(obj)
+	if err != nil {
 		return OperationResultNone, err
 	}
-	if resultUns, err = cli.Update(ctx, objUns, metav1.UpdateOptions{}); err != nil {
+	if fetchedUns, err = cli.Update(ctx, objUns, metav1.UpdateOptions{}); err != nil {
 		return OperationResultNone, err
 	}
-	if err = objectFromUnstructured(resultUns, obj); err != nil {
+	if err = objectFromUnstructured(fetchedUns, obj); err != nil {
 		return OperationResultNone, err
 	}
 	return OperationResultUpdated, nil
-}
-
-func newObject(obj runtime.Object) (runtime.Object, error) {
-	t := reflect.TypeOf(obj)
-	if t.Kind() != reflect.Ptr {
-		return nil, fmt.Errorf("newObject requires a pointer to an object, got %v", t)
-	}
-
-	newObj := reflect.New(t.Elem()).Interface()
-	return newObj.(runtime.Object), nil
 }
 
 func unstructuredFromObject(obj runtime.Object) (*unstructured.Unstructured, error) {
